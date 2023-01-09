@@ -1,0 +1,70 @@
+
+name: Deploy multifib on EBS AWS
+
+on:
+  workflow_dispatch:
+    
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - dockerfile: ./Dockerfile
+            context: client
+            image: michalgrabowski98/lab:fib-client
+          - dockerfile: ./Dockerfile
+            context: server
+            image: michalgrabowski98/lab:fib-server
+          - dockerfile: ./Dockerfile
+            context: worker
+            image: michalgrabowski98/lab:fib-worker
+          - dockerfile: ./Dockerfile
+            context: nginx
+            image: michalgrabowski98/lab:fib-router  
+    
+    steps:
+
+    - name: Checkout source code
+      uses: actions/checkout@v3
+
+    - name: Buildx set-up
+      uses: docker/setup-buildx-action@v2
+
+    - name: Login to DockerHub
+      uses: docker/login-action@v2 
+      with:
+        username: ${{ secrets.DOCKER_HUB_USERNAME }}
+        password: ${{ secrets.DOCKER_HUB_ACCESS_TOKEN }}
+
+    - name: Build and push
+      uses: docker/build-push-action@v3
+      with:
+        context: "{{defaultContext}}:${{ matrix.context }}"
+        file: ${{ matrix.dockerfile }}
+        push: true
+        tags: ${{ matrix.image }}
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+
+    - name: Checkout source code
+      uses: actions/checkout@v3
+
+    - name: Generate deployment package
+      run: zip deploy.zip ./docker-compose.yml
+
+    - name: Deploy to EBS
+      uses: einaregilsson/beanstalk-deploy@v21
+      with:
+        aws_access_key: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws_secret_key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        application_name: multifib
+        environment_name: Multifib-env
+        version_label: lab12
+        region: us-east-1
+        deployment_package: deploy.zip
